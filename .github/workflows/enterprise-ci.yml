@@ -50,10 +50,14 @@ jobs:
     
     - name: 🔒 Security Scan (Filesystem)
       run: |
-        echo "Running security scan..."
-        docker run --rm -v ${{ github.workspace }}:/workspace \
-          aquasec/trivy:latest fs --severity HIGH,CRITICAL /workspace || echo "⚠️ Security scan completed with warnings"
-        echo "✅ Security scan completed"
+        echo "::group::Security Scan"
+        if docker run --rm -v ${{ github.workspace }}:/workspace \
+          aquasec/trivy:latest fs --severity HIGH,CRITICAL /workspace 2>&1; then
+          echo "::notice title=Security Scan::No critical vulnerabilities found"
+        else
+          echo "::warning title=Security Scan::Security scan completed with warnings"
+        fi
+        echo "::endgroup::"
 
   # Stage 2: Docker Build & Validation
   docker-build:
@@ -75,14 +79,18 @@ jobs:
     
     - name: 🏗️ Build Docker Images
       run: |
-        echo "Building Docker images..."
+        echo "::group::Building Docker images"
         # Check if Dockerfile exists
         if [ -f "docker/app/Dockerfile" ]; then
-          docker-compose build app || echo "⚠️ Docker build completed with warnings"
-          echo "✅ Docker build completed"
+          if docker-compose build app 2>&1; then
+            echo "::notice title=Docker Build::Successfully built Docker images"
+          else
+            echo "::warning title=Docker Build::Build completed with warnings"
+          fi
         else
-          echo "ℹ️ Dockerfile not found - skipping build"
+          echo "::notice title=Docker Build::Dockerfile not found - skipping build"
         fi
+        echo "::endgroup::"
     
     - name: 📊 Image Size Report
       run: |
