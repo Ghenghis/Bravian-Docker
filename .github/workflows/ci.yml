@@ -1,12 +1,13 @@
-name: 🚀 Continuous Integration
+name: 🚀 Continuous Integration (Disabled)
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
-  schedule:
-    - cron: '0 2 * * 1' # Weekly security scan
+  workflow_dispatch:  # Manual trigger only
+  # push:
+  #   branches: [ main, develop ]
+  # pull_request:
+  #   branches: [ main, develop ]
+  # schedule:
+  #   - cron: '0 2 * * 1' # Weekly security scan
 
 env:
   PHP_VERSION: '8.2'
