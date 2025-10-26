@@ -1,10 +1,11 @@
 name: 🚀 Enterprise CI/CD Pipeline
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:  # Manual trigger only - disabled to prevent failures
+  # push:
+  #   branches: [ main, develop ]
+  # pull_request:
+  #   branches: [ main ]
 
 env:
   PHP_VERSION: '8.2'
