@@ -1,0 +1,384 @@
+name: 🚀 Continuous Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 2 * * 1' # Weekly security scan
+
+env:
+  PHP_VERSION: '8.2'
+  NODE_VERSION: '20'
+  COMPOSER_CACHE_DIR: ~/.composer/cache
+
+jobs:
+  # Code Quality & Security Checks
+  quality-gate:
+    name: 🔍 Quality Gate
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: 🐘 Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ env.PHP_VERSION }}
+        extensions: mbstring, xml, ctype, iconv, intl, pdo, pdo_mysql, dom, filter, gd, json, redis
+        tools: composer:v2
+        coverage: xdebug
+    
+    - name: 📦 Cache Composer Dependencies
+      uses: actions/cache@v3
+      with:
+        path: ${{ env.COMPOSER_CACHE_DIR }}
+        key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+        restore-keys: ${{ runner.os }}-composer-
+    
+    - name: 🔧 Install PHP Dependencies
+      run: composer install --prefer-dist --no-progress --no-suggest --optimize-autoloader
+    
+    - name: 🎨 Code Style Check (PSR-12)
+      run: vendor/bin/phpcs src tests --standard=PSR12 --report=checkstyle --report-file=phpcs-report.xml
+    
+    - name: 🔬 Static Analysis (PHPStan Level 9)
+      run: vendor/bin/phpstan analyse src tests --level=9 --error-format=github
+    
+    - name: 🧹 Mess Detection (PHPMD)
+      run: vendor/bin/phpmd src,tests github cleancode,codesize,controversial,design,naming,unusedcode
+    
+    - name: 🛡️ Security Audit
+      run: composer audit --format=table
+    
+    - name: 📊 Upload Quality Reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: quality-reports
+        path: |
+          phpcs-report.xml
+          phpstan-report.json
+          phpmd-report.xml
+
+  # Unit & Integration Tests
+  test-suite:
+    name: 🧪 Test Suite
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        php-version: ['8.2', '8.3']
+        test-suite: ['unit', 'integration', 'feature']
+    
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: travian_test
+          MYSQL_USER: travian
+          MYSQL_PASSWORD: travian123
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=3
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: 🐘 Setup PHP ${{ matrix.php-version }}
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php-version }}
+        extensions: mbstring, xml, ctype, iconv, intl, pdo, pdo_mysql, dom, filter, gd, json, redis
+        tools: composer:v2
+        coverage: xdebug
+    
+    - name: 📦 Install Dependencies
+      run: composer install --prefer-dist --no-progress --optimize-autoloader
+    
+    - name: 🗄️ Setup Test Database
+      run: |
+        mysql -h127.0.0.1 -uroot -proot -e "CREATE DATABASE IF NOT EXISTS travian_test;"
+        mysql -h127.0.0.1 -uroot -proot travian_test < sql/schema.sql || echo "Schema file not found, skipping..."
+    
+    - name: 🧪 Run ${{ matrix.test-suite }} Tests
+      run: |
+        case "${{ matrix.test-suite }}" in
+          "unit")
+            vendor/bin/phpunit --testsuite=Unit --coverage-clover=coverage-unit.xml
+            ;;
+          "integration")
+            vendor/bin/phpunit --testsuite=Integration --coverage-clover=coverage-integration.xml
+            ;;
+          "feature")
+            vendor/bin/phpunit --testsuite=Feature --coverage-clover=coverage-feature.xml
+            ;;
+        esac
+      env:
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: travian_test
+        DB_USERNAME: travian
+        DB_PASSWORD: travian123
+        REDIS_HOST: 127.0.0.1
+        REDIS_PORT: 6379
+    
+    - name: 📊 Upload Coverage Reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: coverage-${{ matrix.test-suite }}.xml
+        flags: ${{ matrix.test-suite }}
+        name: php-${{ matrix.php-version }}-${{ matrix.test-suite }}
+
+  # Frontend Build & Test
+  frontend-test:
+    name: 🎨 Frontend Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: 📦 Install Dependencies
+      run: npm ci
+    
+    - name: 🎨 Lint JavaScript
+      run: npm run lint
+    
+    - name: 🧪 Run JavaScript Tests
+      run: npm test
+    
+    - name: 🏗️ Build Assets
+      run: npm run build
+    
+    - name: 📊 Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: frontend-build
+        path: public/build/
+
+  # Docker Build & Security Scan
+  docker-security:
+    name: 🐳 Docker Security
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: 🏗️ Build Docker Images
+      run: |
+        docker-compose build --no-cache
+    
+    - name: 🔍 Run Trivy Vulnerability Scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'docker-travian-app:latest'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: 📊 Upload Trivy Results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: 🛡️ Docker Bench Security
+      run: |
+        docker run --rm --net host --pid host --userns host --cap-add audit_control \
+          -e DOCKER_CONTENT_TRUST=$DOCKER_CONTENT_TRUST \
+          -v /etc:/etc:ro \
+          -v /usr/bin/containerd:/usr/bin/containerd:ro \
+          -v /usr/bin/runc:/usr/bin/runc:ro \
+          -v /usr/lib/systemd:/usr/lib/systemd:ro \
+          -v /var/lib:/var/lib:ro \
+          -v /var/run/docker.sock:/var/run/docker.sock:ro \
+          --label docker_bench_security \
+          docker/docker-bench-security || echo "Docker bench completed with warnings"
+
+  # Performance Testing
+  performance-test:
+    name: ⚡ Performance Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: travian_perf
+          MYSQL_USER: travian
+          MYSQL_PASSWORD: travian123
+        ports:
+          - 3306:3306
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: 🐳 Start Application Stack
+      run: |
+        docker-compose up -d
+        sleep 30 # Wait for services to be ready
+    
+    - name: 🔧 Setup JMeter
+      run: |
+        wget https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.2.tgz
+        tar -xzf apache-jmeter-5.6.2.tgz
+        sudo mv apache-jmeter-5.6.2 /opt/jmeter
+        sudo ln -s /opt/jmeter/bin/jmeter /usr/local/bin/jmeter
+    
+    - name: ⚡ Run Performance Tests
+      run: |
+        jmeter -n -t tests/performance/load-test.jmx -l performance-results.jtl -e -o performance-report/
+      continue-on-error: true
+    
+    - name: 📊 Upload Performance Report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: performance-report
+        path: performance-report/
+
+  # Dependency Security Scan
+  dependency-scan:
+    name: 🔒 Dependency Security
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: 🔍 Run Snyk Security Scan
+      uses: snyk/actions/php@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --severity-threshold=high --file=composer.lock
+    
+    - name: 📊 Upload Snyk Results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: snyk.sarif
+
+  # Code Quality Summary
+  quality-summary:
+    name: 📋 Quality Summary
+    runs-on: ubuntu-latest
+    needs: [quality-gate, test-suite, frontend-test, docker-security]
+    if: always()
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: 📊 Download All Artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: 📋 Generate Quality Report
+      run: |
+        echo "# 📊 Quality Gate Report" > quality-summary.md
+        echo "" >> quality-summary.md
+        echo "## 🎯 Summary" >> quality-summary.md
+        echo "- **Commit**: ${{ github.sha }}" >> quality-summary.md
+        echo "- **Branch**: ${{ github.ref_name }}" >> quality-summary.md
+        echo "- **Triggered by**: ${{ github.event_name }}" >> quality-summary.md
+        echo "- **Run ID**: ${{ github.run_id }}" >> quality-summary.md
+        echo "" >> quality-summary.md
+        
+        # Check job results
+        if [ "${{ needs.quality-gate.result }}" = "success" ]; then
+          echo "✅ **Quality Gate**: PASSED" >> quality-summary.md
+        else
+          echo "❌ **Quality Gate**: FAILED" >> quality-summary.md
+        fi
+        
+        if [ "${{ needs.test-suite.result }}" = "success" ]; then
+          echo "✅ **Test Suite**: PASSED" >> quality-summary.md
+        else
+          echo "❌ **Test Suite**: FAILED" >> quality-summary.md
+        fi
+        
+        if [ "${{ needs.frontend-test.result }}" = "success" ]; then
+          echo "✅ **Frontend Tests**: PASSED" >> quality-summary.md
+        else
+          echo "❌ **Frontend Tests**: FAILED" >> quality-summary.md
+        fi
+        
+        if [ "${{ needs.docker-security.result }}" = "success" ]; then
+          echo "✅ **Docker Security**: PASSED" >> quality-summary.md
+        else
+          echo "❌ **Docker Security**: FAILED" >> quality-summary.md
+        fi
+        
+        echo "" >> quality-summary.md
+        echo "## 📈 Metrics" >> quality-summary.md
+        echo "- **Code Coverage**: Check Codecov report" >> quality-summary.md
+        echo "- **Security Score**: Check Snyk dashboard" >> quality-summary.md
+        echo "- **Performance**: Check JMeter report" >> quality-summary.md
+        
+        cat quality-summary.md
+    
+    - name: 💬 Comment PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const summary = fs.readFileSync('quality-summary.md', 'utf8');
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: summary
+          });
+
+  # Deployment Readiness Check
+  deployment-check:
+    name: 🚀 Deployment Readiness
+    runs-on: ubuntu-latest
+    needs: [quality-gate, test-suite, frontend-test, docker-security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: ✅ All Checks Passed
+      if: needs.quality-gate.result == 'success' && needs.test-suite.result == 'success' && needs.frontend-test.result == 'success' && needs.docker-security.result == 'success'
+      run: |
+        echo "🎉 All quality checks passed! Ready for deployment."
+        echo "deployment-ready=true" >> $GITHUB_OUTPUT
+    
+    - name: ❌ Quality Checks Failed
+      if: needs.quality-gate.result != 'success' || needs.test-suite.result != 'success' || needs.frontend-test.result != 'success' || needs.docker-security.result != 'success'
+      run: |
+        echo "❌ Quality checks failed. Deployment blocked."
+        echo "deployment-ready=false" >> $GITHUB_OUTPUT
+        exit 1

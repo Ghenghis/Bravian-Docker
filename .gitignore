@@ -1,0 +1,84 @@
+# Windows image file caches
+Thumbs.db
+
+# ignore install folder with update ( i think not sure )
+# Fannybaws note - I am sure, it should not be ignored :)
+# /install/*
+
+# Folder config file
+Desktop.ini
+
+# Mac crap
+.DS_Store
+
+# Ignore generated config file
+GameEngine/config.php
+
+# Ignore generated prevention and notes
+GameEngine/Prevention/*
+GameEngine/Notes/*
+
+# Ignore Templates/text.tpl because it is dynamically generated
+Templates/text.tpl
+
+# Install instalation_done marker left by install script
+/.buildpath
+/.project
+/installed_*/
+/var/installed
+
+# Eclipse settings
+.settings
+
+# PHPStorm
+.idea
+
+# additional constant_format.tpl file, copied over from the installation folder
+GameEngine/Admin/Mods/constant_format.tpl
+
+# These 2 files change frequently on the server but not in the repository code.
+Templates/text.tpl
+var/log/access.log
+
+# Large files that exceed GitHub limits
+*.exe
+*.zip
+*.7z
+*.rar
+*.tar.gz
+*.iso
+*.dmg
+*.pkg
+*.deb
+*.rpm
+
+# Specific large files causing GitHub issues
+bot/TravianBotSharp.exe
+docker-travian.zip
+TravianBotSharp.exe.lnk
+
+# Large asset directories
+gpack/
+files/
+files2/
+
+# Development files
+node_modules/
+vendor/
+.env
+*.log
+logs/
+tmp/
+temp/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini

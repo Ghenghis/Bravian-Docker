@@ -1,0 +1,150 @@
+version: '3.9'
+
+services:
+  # PHP Application Server
+  app:
+    build:
+      context: ./docker/app
+      dockerfile: Dockerfile
+    container_name: travian-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./src:/var/www/html
+      - ./logs/php:/var/log/php
+    environment:
+      - PHP_MEMORY_LIMIT=256M
+      - PHP_MAX_EXECUTION_TIME=300
+      - DB_HOST=mysql
+      - DB_DATABASE=travian
+      - DB_USERNAME=travian
+      - DB_PASSWORD=travian123
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - travian-network
+
+  # NGINX Web Server
+  nginx:
+    image: nginx:alpine
+    container_name: travian-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./src:/var/www/html
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - app
+    networks:
+      - travian-network
+
+  # MariaDB Database (Free MySQL alternative)
+  mysql:
+    image: mariadb:10.11
+    container_name: travian-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: travian
+      MYSQL_USER: travian
+      MYSQL_PASSWORD: travian123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+    networks:
+      - travian-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: travian-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - travian-network
+
+  # RabbitMQ Queue (Free tier)
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: travian-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - travian-network
+
+  # Prometheus Monitoring (Free)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: travian-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+    networks:
+      - travian-network
+
+  # Grafana Dashboard (Free)
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: travian-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - travian-network
+
+  # phpMyAdmin (Free MySQL management)
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: travian-phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: travian
+      PMA_PASSWORD: travian123
+    ports:
+      - "8081:80"
+    depends_on:
+      - mysql
+    networks:
+      - travian-network
+
+networks:
+  travian-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:
